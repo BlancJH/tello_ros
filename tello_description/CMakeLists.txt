@@ -1,7 +1,8 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.22)
 project(tello_description)
 
 find_package(ament_cmake REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 #=============
 # Generate N urdf files, each with unique robot and frame names
@@ -23,7 +24,7 @@ foreach (INDEX RANGE 0 8)
   message(STATUS "creating rules for ${URDF_FILE}")
   add_custom_command(
     OUTPUT ${URDF_FILE}
-    COMMAND ${PYTHON_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/src/replace.py"
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/src/replace.py"
     "${CMAKE_CURRENT_SOURCE_DIR}/urdf/tello.xml" "suffix=${SUFFIX}" "topic_ns=${TOPIC_NS}" ">" "${URDF_FILE}"
     DEPENDS urdf/tello.xml
     COMMENT "Generate ${URDF_FILE}"
@@ -46,5 +47,10 @@ install(
 #=============
 # Run ament macros
 #=============
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
 
 ament_package()
