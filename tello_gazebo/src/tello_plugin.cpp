@@ -1,9 +1,22 @@
+#include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <map>
+#include <memory>
+#include <sstream>
+#include <string>
 
-#include "gazebo/gazebo.hh"
-#include "gazebo/physics/physics.hh"
+#include <gz/math/Vector3.hh>
+#include <gz/plugin/Register.hh>
+#include <gz/sim/Entity.hh>
+#include <gz/sim/Link.hh>
+#include <gz/sim/Model.hh>
+#include <gz/sim/System.hh>
+#include <gz/sim/Util.hh>
+#include <gz/sim/World.hh>
+#include <gz/common/Console.hh>
 
-#include "gazebo_ros/node.hpp"
+#include <rclcpp/rclcpp.hpp>
 #include "geometry_msgs/msg/twist.hpp"
 #include "tello_msgs/msg/flight_data.hpp"
 #include "tello_msgs/msg/tello_response.hpp"
@@ -34,29 +47,33 @@ using namespace std::chrono_literals;
 namespace tello_gazebo
 {
 
-  const double MAX_XY_V = 8.0;
-  const double MAX_Z_V = 4.0;
-  const double MAX_ANG_V = M_PI;
-
-  const double MAX_XY_A = 8.0;
-  const double MAX_Z_A = 4.0;
-  const double MAX_ANG_A = M_PI;
-
-  const double TAKEOFF_Z = 1.0;       // Takeoff target z position
-  const double TAKEOFF_Z_V = 0.5;     // Takeoff target z velocity
-
-  const double LAND_Z = 0.1;          // Land target z position
-  const double LAND_Z_V = -0.5;       // Land target z velocity
-
-  const int BATTERY_DURATION = 6000;  // Battery duration in seconds
-
-  inline double clamp(const double v, const double max)
+  namespace
   {
-    return v > max ? max : (v < -max ? -max : v);
-  }
+    const double MAX_XY_V = 8.0;
+    const double MAX_Z_V = 4.0;
+    const double MAX_ANG_V = M_PI;
 
-  class TelloPlugin : public gazebo::ModelPlugin
-  {
+    const double MAX_XY_A = 8.0;
+    const double MAX_Z_A = 4.0;
+    const double MAX_ANG_A = M_PI;
+
+    const double TAKEOFF_Z = 1.0;
+    const double TAKEOFF_Z_V = 0.5;
+
+    const double LAND_Z = 0.1;
+    const double LAND_Z_V = -0.5;
+
+    const int BATTERY_DURATION = 6000;
+
+    inline double clamp(const double v, const double max)
+    {
+      return v > max ? max : (v < -max ? -max : v);
+    }
+  }  // namespace
+
+  class TelloPlugin : public gz::sim::System,
+                      public gz::sim::ISystemConfigure,
+                      public gz::sim::ISystemPreUpdate  {
     enum class FlightState
     {
       landed,
@@ -66,65 +83,171 @@ namespace tello_gazebo
       dead_battery,
     };
 
-    std::map<FlightState, const char *> state_strs_{
-      {FlightState::landed,       "landed"},
-      {FlightState::taking_off,   "taking_off"},
-      {FlightState::flying,       "flying"},
-      {FlightState::landing,      "landing"},
+
+    std::map<FlightState, const char *> state_strs_{{
+      {FlightState::landed, "landed"},
+      {FlightState::taking_off, "taking_off"},
+      {FlightState::flying, "flying"},
+      {FlightState::landing, "landing"},
       {FlightState::dead_battery, "dead_battery"},
-    };
+    }};
 
-    FlightState flight_state_;
+    FlightState flight_state_{FlightState::landed};
 
-    gazebo::physics::LinkPtr base_link_;
-    ignition::math::Vector3d gravity_;
-    ignition::math::Vector3d center_of_mass_{0, 0, 0};
-    int battery_duration_{BATTERY_DURATION};
+    gz::sim::Model model_{gz::sim::kNullEntity};
+    gz::sim::Link base_link_{gz::sim::kNullEntity};
+    gz::math::Vector3d gravity_{0, 0, -9.81};
+    gz::math::Vector3d center_of_mass_{0, 0, 0};
+    std::chrono::duration<double> battery_duration_{std::chrono::seconds(BATTERY_DURATION)};
 
-    // Connection to Gazebo message bus
-    gazebo::event::ConnectionPtr update_connection_;
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::executors::SingleThreadedExecutor executor_;
 
-    // GazeboROS node
-    gazebo_ros::Node::SharedPtr node_;
-
-    // ROS publishers
     rclcpp::Publisher<tello_msgs::msg::FlightData>::SharedPtr flight_data_pub_;
     rclcpp::Publisher<tello_msgs::msg::TelloResponse>::SharedPtr tello_response_pub_;
 
-    // ROS services
     rclcpp::Service<tello_msgs::srv::TelloAction>::SharedPtr command_srv_;
 
-    // ROS subscriptions
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
 
-    // Sim time of last update
-    gazebo::common::Time update_time_;
+    std::chrono::steady_clock::duration last_10hz_{};
 
-    // 10Hz timer
-    gazebo::common::Time ten_hz_time_;
-
-    // cmd_vel messages control x, y, z and yaw velocity
     pid::Controller x_controller_{false, 2, 0, 0};
     pid::Controller y_controller_{false, 2, 0, 0};
     pid::Controller z_controller_{false, 2, 0, 0};
     pid::Controller yaw_controller_{false, 2, 0, 0};
 
   public:
-
     TelloPlugin()
     {
-      (void) update_connection_;
-      (void) command_srv_;
-      (void) cmd_vel_sub_;
-
       transition(FlightState::landed);
     }
 
-    ~TelloPlugin()
+    void Configure(
+      const gz::sim::Entity &entity,
+      const std::shared_ptr<const sdf::Element> &sdf,
+      gz::sim::EntityComponentManager &ecm,
+      gz::sim::EventManager & /*event_mgr*/) override
     {
+      model_ = gz::sim::Model(entity);
+
+      std::string link_name{"base_link"};
+      if (sdf && sdf->HasElement("link_name")) {
+        link_name = sdf->Get<std::string>("link_name");
+      }
+
+      if (sdf) {
+        center_of_mass_ = sdf->Get<gz::math::Vector3d>("center_of_mass", center_of_mass_).first;
+        battery_duration_ = std::chrono::seconds(
+          sdf->Get<int>("battery_duration", BATTERY_DURATION).first);
+      }
+
+      const auto link_entity = model_.LinkByName(ecm, link_name);
+      if (link_entity == gz::sim::kNullEntity) {
+        gzerr << "Missing link: " << link_name << std::endl;
+        return;
+      }
+
+      base_link_ = gz::sim::Link(link_entity);
+
+      gz::sim::World world(model_.World(ecm));
+      auto gravity_opt = world.Gravity(ecm);
+      if (gravity_opt) {
+        gravity_ = *gravity_opt;
+      }
+
+      if (!rclcpp::ok()) {
+        rclcpp::init(0, nullptr);
+      }
+
+      node_ = rclcpp::Node::make_shared("tello_gazebo");
+      node_->set_parameter(rclcpp::Parameter("use_sim_time", true));
+      executor_.add_node(node_);
+
+      flight_data_pub_ = node_->create_publisher<tello_msgs::msg::FlightData>("flight_data", 1);
+      tello_response_pub_ = node_->create_publisher<tello_msgs::msg::TelloResponse>("tello_response", 1);
+
+      command_srv_ = node_->create_service<tello_msgs::srv::TelloAction>(
+        "tello_action",
+        std::bind(&TelloPlugin::command_callback, this,
+        std::placeholders::_1,
+        std::placeholders::_2,
+        std::placeholders::_3));
+
+      cmd_vel_sub_ = node_->create_subscription<geometry_msgs::msg::Twist>(
+        "cmd_vel", rclcpp::QoS(10),
+        std::bind(&TelloPlugin::cmd_vel_callback, this, std::placeholders::_1));
     }
 
-    void set_target_velocities(double x, double y, double z, double yaw)
+    void PreUpdate(
+      const gz::sim::UpdateInfo &info, gz::sim::EntityComponentManager &ecm) override
+    {
+      if (!node_) {
+        return;
+      }
+
+      executor_.spin_some();
+
+      const auto sim_time = info.simTime;
+
+      if ((sim_time - last_10hz_) > 100ms) {
+        spin_10Hz(sim_time, ecm);
+        last_10hz_ = sim_time;
+      }
+
+      const double dt = std::chrono::duration<double>(info.dt).count();
+      if (dt <= 0) {
+        return;
+      }
+
+      if (flight_state_ != FlightState::landed) {
+        const auto linear_velocity_opt = base_link_.WorldLinearVelocity(ecm);
+        const auto angular_velocity_opt = base_link_.WorldAngularVelocity(ecm);
+        const auto mass_matrix_opt = base_link_.MassMatrix(ecm);
+
+        if (!linear_velocity_opt || !angular_velocity_opt || !mass_matrix_opt) {
+          return;
+        }
+
+        auto linear_velocity = *linear_velocity_opt;
+        auto angular_velocity = *angular_velocity_opt;
+        auto mass_matrix = *mass_matrix_opt;
+
+        gz::math::Vector3d lin_ubar, ang_ubar;
+        lin_ubar.X(x_controller_.calc(linear_velocity.X(), dt, 0));
+        lin_ubar.Y(y_controller_.calc(linear_velocity.Y(), dt, 0));
+        lin_ubar.Z(z_controller_.calc(linear_velocity.Z(), dt, 0));
+        ang_ubar.Z(yaw_controller_.calc(angular_velocity.Z(), dt, 0));
+
+        lin_ubar.X() = clamp(lin_ubar.X(), MAX_XY_A);
+        lin_ubar.Y() = clamp(lin_ubar.Y(), MAX_XY_A);
+        lin_ubar.Z() = clamp(lin_ubar.Z(), MAX_Z_A);
+        ang_ubar.Z() = clamp(ang_ubar.Z(), MAX_ANG_A);
+
+        lin_ubar -= gravity_;
+
+        const auto principal_moments = mass_matrix.PrincipalMoments();
+        const gz::math::Vector3d force = lin_ubar * mass_matrix.Mass();
+        const gz::math::Vector3d torque(
+          ang_ubar.X() * principal_moments.X(),
+          ang_ubar.Y() * principal_moments.Y(),
+          ang_ubar.Z() * principal_moments.Z());
+
+        const auto pose_opt = base_link_.WorldPose(ecm);
+        if (pose_opt) {
+          auto pose = *pose_opt;
+          auto rot = pose.Rot();
+          rot.Set(0, 0, rot.Yaw());
+          pose.Set(pose.Pos(), rot);
+          base_link_.SetWorldPose(ecm, pose);
+        }
+
+        base_link_.AddWorldWrench(ecm, force, torque);
+      }
+    }
+
+  private:
+    void set_target_velocities(const double x, const double y, const double z, const double yaw)
     {
       x_controller_.set_target(x);
       y_controller_.set_target(y);
@@ -132,15 +255,14 @@ namespace tello_gazebo
       yaw_controller_.set_target(yaw);
     }
 
-    // Respond to a command of the form "rc x y z yaw"
-    void set_target_velocities(std::string rc_command)
+    void set_target_velocities(const std::string &rc_command)
     {
-      double x, y, z, yaw;
+      double x{}, y{}, z{}, yaw{};
 
       try {
         std::istringstream iss(rc_command, std::istringstream::in);
         std::string s;
-        iss >> s; // "rc"
+        iss >> s;
         iss >> s;
         x = std::stof(s);
         iss >> s;
@@ -149,22 +271,21 @@ namespace tello_gazebo
         z = std::stof(s);
         iss >> s;
         yaw = std::stof(s);
-      } catch (std::exception e) {
-        RCLCPP_ERROR(node_->get_logger(), "can't parse rc command '%s', exception %s", rc_command.c_str(), e.what());
+      } catch (const std::exception &e) {
+        RCLCPP_ERROR(node_->get_logger(), "can't parse rc command '%s', exception %s",
+          rc_command.c_str(), e.what());
         return;
       }
 
-      set_target_velocities(
-        x * MAX_XY_V,
-        y * MAX_XY_V,
-        z * MAX_Z_V,
-        yaw * MAX_ANG_V);
+      set_target_velocities(x * MAX_XY_V, y * MAX_XY_V, z * MAX_Z_V, yaw * MAX_ANG_V);
     }
 
-    void transition(FlightState next)
+    void transition(const FlightState next)
     {
       if (node_ != nullptr) {
-        RCLCPP_INFO(node_->get_logger(), "transition from '%s' to '%s'", state_strs_[flight_state_], state_strs_[next]);
+        RCLCPP_INFO(
+          node_->get_logger(), "transition from '%s' to '%s'", state_strs_[flight_state_],
+          state_strs_[next]);
       }
 
       flight_state_ = next;
@@ -186,138 +307,8 @@ namespace tello_gazebo
       }
     }
 
-    // Called once when the plugin is loaded.
-    void Load(gazebo::physics::ModelPtr model, sdf::ElementPtr sdf)
-    {
-      GZ_ASSERT(model != nullptr, "Model is null");
-      GZ_ASSERT(sdf != nullptr, "SDF is null");
-
-      std::string link_name{"base_link"};
-
-      // In theory we can move much of this config into the <ros> tag, perhaps it's finished in Eloquent?
-      if (sdf->HasElement("link_name")) {
-        link_name = sdf->GetElement("link_name")->Get<std::string>();
-      }
-      if (sdf->HasElement("center_of_mass")) {
-        center_of_mass_ = sdf->GetElement("center_of_mass")->Get<ignition::math::Vector3d>();
-      }
-      if (sdf->HasElement("battery_duration")) {
-        battery_duration_ = sdf->GetElement("center_of_mass")->Get<int>();
-      }
-
-      base_link_ = model->GetLink(link_name);
-      GZ_ASSERT(base_link_ != nullptr, "Missing link");
-      gravity_ = model->GetWorld()->Gravity();
-
-      std::cout << std::fixed;
-      std::setprecision(2);
-      std::cout << std::endl;
-      std::cout << "TELLO PLUGIN" << std::endl;
-      std::cout << "-----------------------------------------" << std::endl;
-      std::cout << "link_name: " << link_name << std::endl;
-      std::cout << "center_of_mass: " << center_of_mass_ << std::endl;
-      std::cout << "gravity: " << gravity_ << std::endl;
-      std::cout << "battery_duration: " << battery_duration_ << std::endl;
-      std::cout << "-----------------------------------------" << std::endl;
-      std::cout << std::endl;
-
-      // ROS node
-      node_ = gazebo_ros::Node::Get(sdf);
-
-      // Fix by adding <parameter name="use_sim_time" type="bool">1</parameter> to the SDF file
-      bool use_sim_time;
-      node_->get_parameter("use_sim_time", use_sim_time);
-      if (!use_sim_time) {
-        RCLCPP_ERROR(node_->get_logger(), "use_sim_time is false, could be a bug");
-      }
-
-      // ROS publishers
-      flight_data_pub_ = node_->create_publisher<tello_msgs::msg::FlightData>("flight_data", 1);
-      tello_response_pub_ = node_->create_publisher<tello_msgs::msg::TelloResponse>("tello_response", 1);
-
-      // ROS service
-      command_srv_ = node_->create_service<tello_msgs::srv::TelloAction>("tello_action",
-                                                                         std::bind(&TelloPlugin::command_callback, this,
-                                                                                   std::placeholders::_1,
-                                                                                   std::placeholders::_2,
-                                                                                   std::placeholders::_3));
-
-      // ROS subscription
-      cmd_vel_sub_ = node_->create_subscription<geometry_msgs::msg::Twist>("cmd_vel", 10,
-                                                                           std::bind(&TelloPlugin::cmd_vel_callback,
-                                                                                     this, std::placeholders::_1));
-
-      // Listen for the Gazebo update event. This event is broadcast every simulation iteration.
-      update_connection_ = gazebo::event::Events::ConnectWorldUpdateBegin(
-        boost::bind(&TelloPlugin::OnUpdate, this, _1));
-    }
-
-    // Called by the world update start event, up to 1000 times per second.
-    void OnUpdate(const gazebo::common::UpdateInfo &info)
-    {
-      // Do nothing if the battery is dead
-      if (flight_state_ == FlightState::dead_battery) {
-        return;
-      }
-
-      // 10Hz timer
-      if ((info.simTime - ten_hz_time_).Double() > 0.1) {
-        spin_10Hz();
-        ten_hz_time_ = info.simTime;
-      }
-
-      // dt
-      double dt = (info.simTime - update_time_).Double();
-      update_time_ = info.simTime;
-
-      // Don't apply force if we're landed
-      if (flight_state_ != FlightState::landed) {
-        // Get current velocity
-        ignition::math::Vector3d linear_velocity = base_link_->RelativeLinearVel();
-        ignition::math::Vector3d angular_velocity = base_link_->RelativeAngularVel();
-
-        // Calc desired acceleration (ubar)
-        ignition::math::Vector3d lin_ubar, ang_ubar;
-        lin_ubar.X(x_controller_.calc(linear_velocity.X(), dt, 0));
-        lin_ubar.Y(y_controller_.calc(linear_velocity.Y(), dt, 0));
-        lin_ubar.Z(z_controller_.calc(linear_velocity.Z(), dt, 0));
-        ang_ubar.Z(yaw_controller_.calc(angular_velocity.Z(), dt, 0));
-
-        // Clamp acceleration
-        lin_ubar.X() = clamp(lin_ubar.X(), MAX_XY_A);
-        lin_ubar.Y() = clamp(lin_ubar.Y(), MAX_XY_A);
-        lin_ubar.Z() = clamp(lin_ubar.Z(), MAX_Z_A);
-        ang_ubar.Z() = clamp(ang_ubar.Z(), MAX_ANG_A);
-
-        // Compensate for gravity
-        lin_ubar -= gravity_;
-
-        // Calc force and torque
-        ignition::math::Vector3d force = lin_ubar * base_link_->GetInertial()->Mass();
-        ignition::math::Vector3d torque = ang_ubar * base_link_->GetInertial()->MOI();
-
-        // Set roll and pitch to 0
-        ignition::math::Pose3d pose = base_link_->WorldPose();
-        pose.Rot().X(0);
-        pose.Rot().Y(0);
-        base_link_->SetWorldPose(pose);
-
-        // Apply force and torque
-        base_link_->AddLinkForce(force, center_of_mass_);
-        base_link_->AddRelativeTorque(torque); // ODE adds torque at the center of mass
-      }
-    }
-
-    bool is_prefix(const std::string &prefix, const std::string &str)
-    {
-      return std::equal(prefix.begin(), prefix.end(), str.begin());
-    }
-
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "UnusedValue"
-
     void command_callback(
-      const std::shared_ptr<rmw_request_id_t> request_header,
+      const std::shared_ptr<rmw_request_id_t> /*request_header*/,
       const std::shared_ptr<tello_msgs::srv::TelloAction::Request> request,
       std::shared_ptr<tello_msgs::srv::TelloAction::Response> response)
     {
@@ -336,18 +327,20 @@ namespace tello_gazebo
       }
     }
 
-#pragma clang diagnostic pop
-
     void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
       if (flight_state_ == FlightState::flying) {
-        // TODO cmd_vel should specify velocity, not joystick position
         set_target_velocities(
           msg->linear.x * MAX_XY_V,
           msg->linear.y * MAX_XY_V,
           msg->linear.z * MAX_Z_V,
           msg->angular.z * MAX_ANG_V);
       }
+    }
+
+    static bool is_prefix(const std::string &prefix, const std::string &str)
+    {
+      return std::equal(prefix.begin(), prefix.end(), str.begin());
     }
 
     void respond_ok()
@@ -358,32 +351,37 @@ namespace tello_gazebo
       tello_response_pub_->publish(msg);
     }
 
-    void spin_10Hz()
+    void spin_10Hz(
+      const std::chrono::steady_clock::duration &sim_time,
+      gz::sim::EntityComponentManager &ecm)
     {
-      rclcpp::Time ros_time = node_->now();
+      const auto sim_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sim_time);
+      const rclcpp::Time ros_time(sim_time_ns.count(), RCL_ROS_TIME);
 
-      // Wait for ROS time to get reasonable TODO sometimes this never happens
       if (ros_time.seconds() < 1.0) {
         return;
       }
 
-      // Simulate a battery
-      int battery_percent = static_cast<int>((battery_duration_ - ros_time.seconds()) / battery_duration_ * 100);
+      const double elapsed = std::chrono::duration<double>(sim_time).count();
+      const int battery_percent = static_cast<int>((battery_duration_.count() - elapsed) /
+        battery_duration_.count() * 100);
       if (battery_percent <= 0) {
-        // We're dead
         transition(FlightState::dead_battery);
         return;
       }
 
-      // Publish flight data
       tello_msgs::msg::FlightData flight_data;
       flight_data.header.stamp = ros_time;
       flight_data.sdk = flight_data.SDK_1_3;
       flight_data.bat = battery_percent;
       flight_data_pub_->publish(flight_data);
 
-      // Finish pending actions
-      ignition::math::Pose3d pose = base_link_->WorldPose();
+      const auto pose_opt = base_link_.WorldPose(ecm);
+      if (!pose_opt) {
+        return;
+      }
+
+      const auto &pose = *pose_opt;
       if (flight_state_ == FlightState::taking_off && pose.Pos().Z() > TAKEOFF_Z) {
         transition(FlightState::flying);
         respond_ok();
@@ -394,6 +392,9 @@ namespace tello_gazebo
     }
   };
 
-  GZ_REGISTER_MODEL_PLUGIN(TelloPlugin)
-
-} // namespace tello_gazebo
+  GZ_ADD_PLUGIN(
+    TelloPlugin,
+    gz::sim::System,
+    gz::sim::ISystemConfigure,
+    gz::sim::ISystemPreUpdate);
+}  // namespace tello_gazebo

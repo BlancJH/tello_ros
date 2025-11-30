@@ -17,18 +17,27 @@
 
     <buildtool_depend>ament_cmake</buildtool_depend>
 
-    <depend>gazebo</depend>
-    <depend>gazebo_ros</depend>
+
+    <build_depend>gz-plugin2</build_depend>
+    <build_depend>gz-sim7</build_depend>
+    <build_depend>gz-math7</build_depend>
+    <build_export_depend>gz-plugin2</build_export_depend>
+    <build_export_depend>gz-sim7</build_export_depend>
+    <build_export_depend>gz-math7</build_export_depend>
+    <exec_depend>gz-plugin2</exec_depend>
+    <exec_depend>gz-sim7</exec_depend>
+    <exec_depend>gz-math7</exec_depend>
+
     <depend>geometry_msgs</depend>
     <depend>rclcpp</depend>
     <depend>std_msgs</depend>
     <depend>tello_msgs</depend>
 
-    <exec_depend>gazebo_ros_pkgs</exec_depend>
-
+    <test_depend>ament_lint_auto</test_depend>
+    <test_depend>ament_lint_common</test_depend>
+    
     <export>
         <build_type>ament_cmake</build_type>
-        <gazebo_ros plugin_path="${prefix}/lib" gazebo_media_path="${prefix}"/>
     </export>
 
 </package>
