@@ -45,7 +45,16 @@ find_package(tello_msgs REQUIRED)
 # Package includes not needed for CMake >= 2.8.11
 include_directories(
   include
-  h264decoder)
+  h264decoder
+  ${cv_bridge_INCLUDE_DIRS}
+  ${rclcpp_components_INCLUDE_DIRS}
+)
+
+find_package(cv_bridge REQUIRED)
+include_directories(
+  ${cv_bridge_INCLUDE_DIRS}
+  ${rclcpp_components_INCLUDE_DIRS}
+  )
 
 # h264decoder uses deprecated ffmpeg calls, turn off the warnings
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
@@ -72,6 +81,7 @@ set(DRIVER_NODE_DEPS
   geometry_msgs
   OpenCV
   rclcpp
+  rclcpp_components
   ros2_shared
   sensor_msgs
   std_msgs
@@ -125,6 +135,7 @@ set(JOY_NODE_SOURCES
 set(JOY_NODE_DEPS
   class_loader
   geometry_msgs
+  rclcpp_components
   rclcpp
   sensor_msgs
   tello_msgs)

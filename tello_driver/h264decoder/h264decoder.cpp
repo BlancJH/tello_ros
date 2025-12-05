@@ -1,6 +1,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/avutil.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
 #include <libswscale/swscale.h>
 }
@@ -31,19 +32,14 @@ typedef unsigned char ubyte;
 
 H264Decoder::H264Decoder()
 {
-  avcodec_register_all();
 
-  codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+  codec = const_cast<AVCodec*>(avcodec_find_decoder(AV_CODEC_ID_H264));
   if (!codec)
     throw H264InitFailure("cannot find decoder");
 
   context = avcodec_alloc_context3(codec);
   if (!context)
     throw H264InitFailure("cannot allocate context");
-
-  if(codec->capabilities & CODEC_CAP_TRUNCATED) {
-    context->flags |= CODEC_FLAG_TRUNCATED;
-  }
 
   int err = avcodec_open2(context, codec, nullptr);
   if (err < 0)
@@ -96,8 +92,8 @@ bool H264Decoder::is_frame_available() const
 const AVFrame& H264Decoder::decode_frame()
 {
   int got_picture = 0;
-  int nread = avcodec_decode_video2(context, frame, &got_picture, pkt);
-  if (nread < 0 || got_picture == 0)
+  int nread = avcodec_receive_frame(context, frame);
+  if (nread < 0)
     throw H264DecodeFailure("error decoding frame\n");
   return *frame;
 }
@@ -132,7 +128,7 @@ const AVFrame& ConverterRGB24::convert(const AVFrame &frame, ubyte* out_rgb)
     throw H264DecodeFailure("cannot allocate context");
 
   // Setup framergb with out_rgb as external buffer. Also say that we want RGB24 output.
-  avpicture_fill((AVPicture*)framergb, out_rgb, AV_PIX_FMT_BGR24, w, h);
+  av_image_fill_arrays(framergb->data, framergb->linesize, out_rgb, AV_PIX_FMT_BGR24, w, h, 1);
   // Do the conversion.
   sws_scale(context, frame.data, frame.linesize, 0, h,
     framergb->data, framergb->linesize);
@@ -152,7 +148,7 @@ fill the buffer we should also use it to determine the required size.
 int ConverterRGB24::predict_size(int w, int h)
 {
   // TODO do we need this?
-  return avpicture_fill((AVPicture*)framergb, nullptr, AV_PIX_FMT_BGR24, w, h);
+  return av_image_get_buffer_size(AV_PIX_FMT_BGR24, w, h, 1);
 }
 
 
