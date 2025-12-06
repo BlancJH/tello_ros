@@ -50,12 +50,6 @@ include_directories(
   ${rclcpp_components_INCLUDE_DIRS}
 )
 
-find_package(cv_bridge REQUIRED)
-include_directories(
-  ${cv_bridge_INCLUDE_DIRS}
-  ${rclcpp_components_INCLUDE_DIRS}
-  )
-
 # h264decoder uses deprecated ffmpeg calls, turn off the warnings
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
 

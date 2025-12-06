@@ -29,6 +29,9 @@
 
     <export>
         <build_type>ament_cmake</build_type>
+        <depend>cv_bridge</depend>
+        <depend>rclcpp_components</depend>
+        <depend>geometry_msgs</depend>
     </export>
 
 </package>
