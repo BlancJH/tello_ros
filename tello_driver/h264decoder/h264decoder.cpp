@@ -54,13 +54,12 @@ H264Decoder::H264Decoder()
     throw H264InitFailure("cannot allocate frame");
 
 #if 1
-  pkt = new AVPacket;
+  pkt = av_packet_alloc(); // Use modern allocation function
   if (!pkt)
     throw H264InitFailure("cannot allocate packet");
-  av_init_packet(pkt);
+  // av_init_packet(pkt); // Not needed after alloc
 #endif
 }
-
 
 H264Decoder::~H264Decoder()
 {
