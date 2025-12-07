@@ -79,7 +79,14 @@ namespace tello_driver
       complete_command(str == "error" ? tello_msgs::msg::TelloResponse::ERROR : tello_msgs::msg::TelloResponse::OK,
                        str);
     } else {
-      RCLCPP_WARN(driver_->get_logger(), "Unexpected '%s'", str.c_str());
+      // FIX: If we aren't waiting, but the drone sends 'ok' anyway (early handshake),
+      // treat it as successful initialization.
+      if (str == "ok") {
+        RCLCPP_INFO(driver_->get_logger(), "Initial handshake successful.");
+        // The receiving_ flag is already true from line 72, but this confirms success.
+      } else {
+        RCLCPP_WARN(driver_->get_logger(), "Unexpected '%s'", str.c_str());
+      }
     }
   }
 
