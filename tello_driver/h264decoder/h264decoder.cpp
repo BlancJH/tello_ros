@@ -90,10 +90,22 @@ bool H264Decoder::is_frame_available() const
 
 const AVFrame& H264Decoder::decode_frame()
 {
-  int got_picture = 0;
-  int nread = avcodec_receive_frame(context, frame);
-  if (nread < 0)
-    throw H264DecodeFailure("error decoding frame\n");
+  // 1. Send the packet to the decoder (Critical Step!)
+  if (pkt->size > 0) {
+    int ret = avcodec_send_packet(context, pkt);
+    if (ret < 0) {
+      throw H264DecodeFailure("error sending packet to decoder");
+    }
+  }
+
+  // 2. Receive the decoded frame
+  int ret = avcodec_receive_frame(context, frame);
+  if (ret < 0) {
+    // This handles standard errors (like EAGAIN) by throwing, 
+    // which the driver catches and logs as "error decoding frame" 
+    // until a full keyframe is ready.
+    throw H264DecodeFailure("error decoding frame");
+  }
   return *frame;
 }
 
