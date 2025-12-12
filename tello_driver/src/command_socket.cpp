@@ -41,13 +41,24 @@ namespace tello_driver
 
     if (!waiting_) {
       RCLCPP_DEBUG(driver_->get_logger(), "Sending '%s'...", command.c_str());
-      socket_.send_to(asio::buffer(command), remote_endpoint_);
-      send_time_ = driver_->now();
 
-      // Wait for a response for all commands except "rc"
-      if (command.rfind("rc", 0) != 0) {
-        respond_ = respond;
-        waiting_ = true;
+      try {
+        socket_.send_to(asio::buffer(command), remote_endpoint_);
+        send_time_ = driver_->now();
+
+        // Wait for a response for all commands except "rc"
+        if (command.rfind("rc", 0) != 0) {
+          respond_ = respond;
+          waiting_ = true;
+        }
+      } 
+      catch (const std::system_error &e) {
+        // Catch network unreachable errors and log them as warnings instead of crashing
+        RCLCPP_WARN(driver_->get_logger(), "Network error sending '%s': %s", command.c_str(), e.what());
+      } 
+      catch (const std::exception &e) {
+        // Catch any other standard exceptions
+        RCLCPP_ERROR(driver_->get_logger(), "Error sending '%s': %s", command.c_str(), e.what());
       }
     }
   }
