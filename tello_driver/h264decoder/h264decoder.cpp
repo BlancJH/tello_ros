@@ -90,7 +90,7 @@ bool H264Decoder::is_frame_available() const
 
 const AVFrame& H264Decoder::decode_frame()
 {
-  // 1. Send the packet to the decoder (Critical Step!)
+  // 1. Send the packet to the decoder
   if (pkt->size > 0) {
     int ret = avcodec_send_packet(context, pkt);
     if (ret < 0) {
