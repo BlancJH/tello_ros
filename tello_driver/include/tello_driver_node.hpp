@@ -75,7 +75,9 @@ namespace tello_driver
 
     // ROS timer
     rclcpp::TimerBase::SharedPtr spin_timer_;
-  };
+
+      int startup_timer_ = 0;
+    };
 
   //=====================================================================================
   // Abstract socket
