@@ -1,6 +1,7 @@
 # `tello_ros`
 
-`tello_ros` is a ROS2 driver for Tello and Tello EDU drones.
+`tello_ros` is a ROS2 driver for Tello and Tello EDU drones. This is modification of `clydemcqueen` [original_tello_ros](https://github.com/clydemcqueen/tello_ros.git). The reason of modification is to run this package on Ubuntu 24.04 with ROS2 Jazzy as the original package is stopped updating since Ubuntu 20.04 with R
+OS2 Foxy. This modification enables `tello_ros` to run seamlessly on Ubuntu 24.04 with ROS2 Foxy.
 
 ## Packages
 
@@ -8,7 +9,7 @@ There are 4 ROS packages:
 * `tello_driver` is a C++ ROS node that connects to the drone
 * `tello_msgs` is a set of ROS messages
 * `tello_description` contains robot description (URDF) files
-* `tello_gazebo` can be used to simulate a Tello drone in [Gazebo](http://gazebosim.org/),
+* `tello_gazebo` can be used to simulate a Tello drone in [Gazebo](http://gazebosim.org/), -Not working yet
  see the `README.md` in that package for details
 
 ## Interface
@@ -84,7 +85,7 @@ The defaults work well for a single Tello drone.
 
 ### 1. Set up your Linux environment
 
-Set up a Ubuntu 20.04 box or VM.
+Set up a **Ubuntu 24.04** box or VM. **Note: Gazebo is currently not updated for ROS 2 Jazzy.**
 
 Also install asio:
 ~~~
@@ -93,15 +94,15 @@ sudo apt install libasio-dev
 
 ### 2. Set up your ROS environment
 
-[Install ROS2 Foxy](https://docs.ros.org/) with the `ros-foxy-desktop` option.
+[Install ROS 2 Jazzy](https://docs.ros.org/en/jazzy/Installation/index.html) with the appropriate desktop option.
 
 If you install binaries, be sure to also install the 
-[development tools and ROS tools](https://docs.ros.org/en/foxy/Installation/Ubuntu-Development-Setup.html)
+[development tools and ROS tools](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Development-Setup.html)
 from the source installation instructions.
 
 Install these additional packages:
 ~~~
-sudo apt install ros-foxy-cv-bridge ros-foxy-camera-calibration-parsers
+sudo apt install ros-jazzy-cv-bridge ros-jazzy-camera-calibration-parsers
 ~~~
 
 ### 3. Install `tello_ros`
@@ -110,11 +111,11 @@ Download, compile and install `tello_ros`:
 ~~~
 mkdir -p ~/tello_ros_ws/src
 cd ~/tello_ros_ws/src
-git clone https://github.com/clydemcqueen/tello_ros.git
+git clone https://github.com/blancjh/tello_ros.git
 git clone https://github.com/ptrmu/ros2_shared.git
 cd ..
-source /opt/ros/foxy/setup.bash
-# If you didn't intall Gazebo, skip tello_gazebo while building:
+source /opt/ros/jazzy/setup.bash
+# Skip tello_gazebo while building as it is not yet compatible with ROS 2 Jazzy:
 colcon build --event-handlers console_direct+ --packages-skip tello_gazebo
 ~~~
 
@@ -147,8 +148,6 @@ ros2 topic pub /cmd_vel geometry_msgs/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, 
 
 ## Devices tested
 
-* Tello
-  * Firmware v01.04.35.01, SDK v1.3
 * Tello EDU
   * Firmware v02.04.69.03, SDK v2.0
 
@@ -156,8 +155,8 @@ ros2 topic pub /cmd_vel geometry_msgs/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, 
 
 `tello_ros` was developed along with several other projects while ROS2 was rapidly changing.
 All of the related projects adopted similar conventions around branch names:
-* the `master` branch works with the latest ROS2 release (Foxy as of this writing)
-* there may be branches for older ROS2 versions, such as `crystal`, `dashing` or `eloquent`
+* the `master` branch works with the latest ROS2 release (**Jazzy** as of this writing)
+* You can find older ROS versions from original repository by `clydemcqueen` [original_tello_ros](https://github.com/clydemcqueen/tello_ros.git)
 
 The following projects and branches were tested together:
 
