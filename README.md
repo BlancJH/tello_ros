@@ -1,7 +1,6 @@
 # `tello_ros`
 
-`tello_ros` is a ROS2 driver for Tello and Tello EDU drones. This is modification of `clydemcqueen` [original_tello_ros](https://github.com/clydemcqueen/tello_ros.git). The reason of modification is to run this package on Ubuntu 24.04 with ROS2 Jazzy as the original package is stopped updating since Ubuntu 20.04 with R
-OS2 Foxy. This modification enables `tello_ros` to run seamlessly on Ubuntu 24.04 with ROS2 Foxy.
+`tello_ros` is a ROS2 driver for Tello and Tello EDU drones. This is modification of `clydemcqueen` [original_tello_ros](https://github.com/clydemcqueen/tello_ros.git). The reason of modification is to run this package on Ubuntu 24.04 with ROS2 Jazzy as the original package is stopped updating since Ubuntu 20.04 with ROS2 Foxy. This modification enables `tello_ros` to run seamlessly on Ubuntu 24.04 with ROS2 Foxy.
 
 ## Packages
 
