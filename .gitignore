@@ -3,3 +3,55 @@ cmake-build-*
 .cmake-build-*
 
 venv
+
+# ==========================================
+# ROS 2 (colcon) & ROS 1 (catkin) Build Spaces
+# ==========================================
+build/
+install/
+log/
+devel/
+
+# ==========================================
+# Auto-generated Build/Config Files
+# ==========================================
+.catkin_workspace
+CMakeLists.txt
+!src/CMakeLists.txt
+
+# ==========================================
+# ROS 1 Auto-generated message/service files
+# ==========================================
+msg_gen/
+srv_gen/
+msg/*ActionFeedback.msg
+msg/*ActionGoal.msg
+msg/*Action.msg
+msg/*ActionResult.msg
+msg/*Feedback.msg
+msg/*Goal.msg
+msg/*Result.msg
+
+# ==========================================
+# C/C++ Compiled Artifacts
+# ==========================================
+*.o
+*.so
+*.a
+
+# ==========================================
+# Python Compiled Artifacts
+# ==========================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# ==========================================
+# IDE & System Files (Optional)
+# ==========================================
+.vscode/
+.idea/
+.DS_Store
+*.swp
