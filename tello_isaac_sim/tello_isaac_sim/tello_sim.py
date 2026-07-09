@@ -3,9 +3,31 @@
 import os
 import sys
 
+# Remove system ROS 2 libraries from LD_LIBRARY_PATH and PYTHONPATH to avoid conflicts 
+# between Jazzy (Python 3.12) and Isaac Sim's bundled ROS 2 (Python 3.10).
+if "LD_LIBRARY_PATH" in os.environ:
+    paths = os.environ["LD_LIBRARY_PATH"].split(":")
+    paths = [p for p in paths if "/opt/ros" not in p]
+    os.environ["LD_LIBRARY_PATH"] = ":".join(paths)
+
+if "PYTHONPATH" in os.environ:
+    paths = os.environ["PYTHONPATH"].split(":")
+    paths = [p for p in paths if "/opt/ros" not in p]
+    os.environ["PYTHONPATH"] = ":".join(paths)
+
+# Force FastRTPS which is what Isaac Sim's ROS 2 bridge expects by default
+os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
+# Trick Isaac Sim into loading its bundled Humble bridge
+os.environ["ROS_DISTRO"] = "humble"
+
 # Set up Isaac Sim app first
 from isaacsim import SimulationApp
 simulation_app = SimulationApp({"headless": False})
+
+# Enable ROS 2 bridge extension before importing rclpy
+from omni.isaac.core.utils.extensions import enable_extension
+enable_extension("isaacsim.ros2.bridge")
+simulation_app.update()
 
 import numpy as np
 import rclpy
@@ -100,7 +122,7 @@ class TelloIsaacSimNode(Node):
                     keys.CREATE_NODES: [
                         ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
                         ("CreateRenderProduct", "omni.isaac.core_nodes.IsaacCreateRenderProduct"),
-                        ("ROS2CameraHelper", "omni.isaac.ros2_bridge.ROS2CameraHelper"),
+                        ("ROS2CameraHelper", "isaacsim.ros2.bridge.ROS2CameraHelper"),
                     ],
                     keys.CONNECT: [
                         ("OnPlaybackTick.outputs:tick", "CreateRenderProduct.inputs:execIn"),
