@@ -34,6 +34,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
+import omni.kit.commands
 
 # You might need to build tello_msgs in the workspace to import this
 try:
@@ -47,7 +48,7 @@ from omni.isaac.core import World
 from omni.isaac.core.utils.extensions import enable_extension
 from omni.isaac.core.utils.stage import get_current_stage
 import omni.graph.core as og
-from omni.isaac.urdf import _urdf
+from isaacsim.asset.importer.urdf import _urdf
 from pxr import UsdGeom, Gf, UsdPhysics
 
 class TelloIsaacSimNode(Node):
@@ -56,7 +57,7 @@ class TelloIsaacSimNode(Node):
         self.world = world
         
         # Load URDF plugin
-        enable_extension("omni.isaac.urdf")
+        enable_extension("isaacsim.asset.importer.urdf")
         
         # Import Tello URDF
         urdf_interface = _urdf.acquire_urdf_interface()
@@ -76,8 +77,12 @@ class TelloIsaacSimNode(Node):
         urdf_path = os.path.join(pkg_share, 'urdf', 'tello.xml')
         dest_path = '/tello'
         
-        result, prim_path = urdf_interface.parse_urdf(urdf_path, import_config, dest_path)
-        
+        result, prim_path = omni.kit.commands.execute(
+            "URDFParseAndImportFile",
+            urdf_path=urdf_path,
+            import_config=import_config,
+            get_articulation_root=True
+        )
         if result:
             self.get_logger().info(f"Loaded Tello URDF at {prim_path}")
         else:
@@ -121,7 +126,7 @@ class TelloIsaacSimNode(Node):
                 {
                     keys.CREATE_NODES: [
                         ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
-                        ("CreateRenderProduct", "omni.isaac.core_nodes.IsaacCreateRenderProduct"),
+                        ("CreateRenderProduct", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
                         ("ROS2CameraHelper", "isaacsim.ros2.bridge.ROS2CameraHelper"),
                     ],
                     keys.CONNECT: [
